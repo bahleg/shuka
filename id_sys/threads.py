@@ -1,7 +1,8 @@
-from mutex import mutex as mutex_obj
-from threading import Condition, Thread, current_thread
+#from mutex import mutex as mutex_obj
+#from threading import Condition, Thread, current_thread
+import os
 import logging
-
+import multiprocessing
 from sdl2 import *
 
 from sys_public import *
@@ -27,10 +28,10 @@ def sys_init_threads():
     global _mutex, _cond, _signaled, _waiting, _thread_count
     # id: critical sections
     for i in xrange(MAX_CRITICAL_SECTIONS):
-        _mutex.append(mutex_obj())
+        _mutex.append(multiprocessing.Lock())
     # id: events
     for i in xrange(MAX_TRIGGER_EVENTS):
-        _cond.append(Condition())
+        _cond.append(multiprocessing.Condition())
         _signaled.append(False)
         _waiting.append(False)
         for i in xrange(MAX_THREADS):
@@ -96,7 +97,9 @@ def sys_trigger_event(index):
 def sys_create_thread(function, params, info, name):
     global _thread_count, threads
     sys_enter_critical_section(CRITICAL_SECTIONS['CRITICAL_SECTION_ZERO'])
-    t = Thread(target=function, args=params)
+
+    t = multiprocessing.Process(target=function, args=params)
+    t.start()#Thread(target=function, args=params)
     info.name = name
     info.thread_handle = t
     info.thread_id = t.ident
@@ -124,7 +127,7 @@ def sys_get_thread_name():
     find the name of the calling thread
     """
     sys_enter_critical_section(CRITICAL_SECTIONS['CRITICAL_SECTION_ZERO'])
-    id = current_thread().ident
+    id = os.getpid()# current_thread().ident
     for t in _thread:
         if t.thread_id == id:
             return t.name
