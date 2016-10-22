@@ -1,3 +1,4 @@
+from shuka_lib.mocks import not_implemented_log
 KEY_NUMS = {
     'K_TAB': 9,
     'K_ENTER': 13,
@@ -145,3 +146,18 @@ KEY_NUMS = {
     'K_RIGHT_ALT': 253,  # id:  used by some languages as "Alt-Gr"
     'K_LAST_KEY ': 254  # id: this better be < 256!
 }
+
+
+class KeyInput:
+    def init(self):
+        not_implemented_log('key input init')
+
+    _instance = None
+
+
+    @staticmethod
+    def get_instance():
+        return KeyInput._instance
+
+    def __init__(self):
+        KeyInput._instance = self

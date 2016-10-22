@@ -1,7 +1,7 @@
 import ctypes
 import logging
 from functools import partial
-
+from shuka_lib.mocks import not_implemented_log
 from sdl2 import *
 
 from framework.common import *
@@ -269,7 +269,8 @@ def sys_get_event():
         if ev.type == SDL_KEYDOWN:
             flags = 0
             if ev.key.keysym.sym == SDLK_RETURN and (ev.key.keysym.mod & KEY_NUMS['KMOD_ALT']) > 0:
-                cvarSystem.set_cvar_bool("r_fullscreen", not renderSystem->IsFullScreen())
+                not_implemented_log('cvarSystem.set_cvar_bool("r_fullscreen", not renderSystem->IsFullScreen())')
+                #cvarSystem.set_cvar_bool("r_fullscreen", not renderSystem->IsFullScreen())
                 push_console_event("vid_restart")
                 return res_none
         if ev.type == SDL_KEYUP:
@@ -376,7 +377,8 @@ def sys_clear_events():
 
 
 def sys_generate_events():
-    s = sys_console_input()
+    not_implemented_log('sys_console_input in sys_generated_events')
+    s = None#sys_console_input()
     if s:
         push_console_event(s)
     SDL_PumpEvents()

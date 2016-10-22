@@ -16,7 +16,7 @@ _waiting = []
 _thread = []
 _thread_count = 0
 
-
+_manager = None
 def sys_sleep(msec):
     SDL_Delay(msec)
 
@@ -26,13 +26,16 @@ def sys_milliseconds():
 
 
 def sys_init_threads():
-    global _mutex, _cond, _signaled, _waiting, _thread_count
+
+    global _mutex, _cond, _signaled, _waiting, _thread_count, _manager
+    _manager = multiprocessing.Manager()
+
     # id: critical sections
     for i in xrange(MAX_CRITICAL_SECTIONS):
-        _mutex.append(multiprocessing.Lock())
+        _mutex.append(_manager.Lock())
     # id: events
     for i in xrange(MAX_TRIGGER_EVENTS):
-        _cond.append(multiprocessing.Condition())
+        _cond.append(_manager.Condition())
         _signaled.append(False)
         _waiting.append(False)
         for i in xrange(MAX_THREADS):
@@ -44,13 +47,13 @@ def sys_init_threads():
 def sys_enter_critical_section(index):
     global _mutex
     assert index >= 0 and index < MAX_CRITICAL_SECTIONS
-    _mutex[index].lock()
+    _mutex[index].acquire()
 
 
 def sys_leave_critical_section(index):
     global _mutex
     assert index >= 0 and index < MAX_CRITICAL_SECTIONS
-    _mutex[index].unlock()
+    _mutex[index].release()
 
 
 """
@@ -92,7 +95,7 @@ def sys_trigger_event(index):
         _cond[index].notify()
     else:
         _signaled[index] = True
-    sys_leave_critical_section(index)
+    sys_leave_critical_section(CRITICAL_SECTIONS['CRITICAL_SECTION_SYS'])
 
 
 def sys_create_thread(function, params, info, name):
