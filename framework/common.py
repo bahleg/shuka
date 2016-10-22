@@ -181,14 +181,18 @@ class IdCommonLocal(IdCommon):
             pass
         fh = logging.FileHandler(name)
         fh.setLevel(logging.INFO)
+        """
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)
+        """
         formatter = logging.Formatter('%(asctime)s : %(levelname)s ::: %(message)s')
         formatter_console = logging.Formatter('%(levelname)s: %(message)s')
         fh.setFormatter(formatter)
-        ch.setFormatter(formatter_console)
+
+        #ch.setFormatter(formatter_console)
+        #logger.addHandler(ch)
+
         logger.addHandler(fh)
-        logger.addHandler(ch)
         logger.log(logging.INFO, 'Logger created')
 
     def init(self, args):

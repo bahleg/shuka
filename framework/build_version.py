@@ -1,7 +1,7 @@
 engine_name = 'SHUKA'
 milestone = 'pre-alpha'
-version_letter = '0'
-very_short_description = 'nothing works'
+version_letter = '1'
+very_short_description = 'basic run'
 
 
 def get_version_string():
