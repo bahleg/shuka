@@ -1,15 +1,28 @@
+# noinspection PyUnresolvedReferences
 import ctypes
-
+# noinspection PyUnresolvedReferences
 from build_version import *
+# noinspection PyUnresolvedReferences
 from id_sys.threads import *
+# noinspection PyUnresolvedReferences
 from id_sys.posix_port.posix_main import *
+# noinspection PyUnresolvedReferences
 from usercmd_gen import *
+# noinspection PyUnresolvedReferences
 from cmd_system import *
+# noinspection PyUnresolvedReferences
 from cvar_system import *
+# noinspection PyUnresolvedReferences
 from key_input import *
+# noinspection PyUnresolvedReferences
 from id_lib.lib import *
+# noinspection PyUnresolvedReferences
 from id_sys.sys_public import *
+# noinspection PyUnresolvedReferences
 from id_sys.events import *
+
+from renderer.render_system import IdRenderSystemLocal
+
 TOOL_FLAG = {
     'EDITOR_NONE': 0,
     'EDITOR_RADIANT': bit(1),
@@ -30,6 +43,8 @@ _com_tic_number = 0
 _com_frame_time = 0
 _com_frame_number = 0
 _last_tic_msec = 0
+
+
 def async_timer_func(interval, ptr):
     IdCommon.get_instance().async()
     sys_trigger_event(TRIGGER_EVENTS['TRIGGER_EVENT_ONE'])
@@ -171,6 +186,11 @@ class IdCommon:
 
 
 class IdCommonLocal(IdCommon):
+    def __init__(self):
+        IdCommon.__init__(self)
+        self.com_num_console_lines = 0
+        self.com_console_lines = []
+
     def init_logger(self):
         logger = logging.getLogger()
         logger.setLevel(10)
@@ -189,8 +209,8 @@ class IdCommonLocal(IdCommon):
         formatter_console = logging.Formatter('%(levelname)s: %(message)s')
         fh.setFormatter(formatter)
 
-        #ch.setFormatter(formatter_console)
-        #logger.addHandler(ch)
+        # ch.setFormatter(formatter_console)
+        # logger.addHandler(ch)
 
         logger.addHandler(fh)
         logger.log(logging.INFO, 'Logger created')
@@ -234,13 +254,12 @@ class IdCommonLocal(IdCommon):
             not_implemented_log('SIMD')
             not_implemented_log('InitCommands')
             # id: game specific initialization
-            not_implemented_log('InitGame')
+            self.init_game()
             not_implemented_log('Console routines')
             self.com_fullyInitialized = True
 
         except Exception, e:
             sys_error('Error during initialization:' + repr(e))
-
 
         async_timer_func_c = SDL_TimerCallback(async_timer_func)
         async_timer = SDL_AddTimer(USERCMD_MSEC, async_timer_func_c, None)
@@ -261,37 +280,37 @@ class IdCommonLocal(IdCommon):
 
             _com_frame_number += 1
             not_implemented_log('idLib.frameNumber = com_frameNumber')
-            #idLib.frameNumber = com_frameNumber
+            # idLib.frameNumber = com_frameNumber
 
         except IdException:
             return  # id:  an ERP_DROP was thrown
 
     def async(self):
-        global  _last_tic_msec
+        global _last_tic_msec
         msec = sys_milliseconds()
         if not _last_tic_msec:
             _last_tic_msec = msec - USERCMD_MSEC
         not_implemented_log('async com_preciseTic.GetBool()')
         if False:
-            #id: just run a single tic, even if the exact msec isn't precise
+            # id: just run a single tic, even if the exact msec isn't precise
             self.single_async_tic()
             return
         tic_msec = USERCMD_MSEC
 
-        #id: the number of msec per tic can be varies with the timescale cvar
+        # id: the number of msec per tic can be varies with the timescale cvar
         not_implemented_log('timescale')
         timescale = 1.0
-        if (timescale!=1.0):
+        if (timescale != 1.0):
             tic_msec /= timescale
-            if tic_msec<1:
+            if tic_msec < 1:
                 tic_msec = 1
 
-        #id:  don't skip too many
+        # id:  don't skip too many
         if (timescale == 1.0):
-            if (_last_tic_msec + 10 * USERCMD_MSEC < msec ):
-                _last_tic_msec = msec - 10*USERCMD_MSEC
+            if (_last_tic_msec + 10 * USERCMD_MSEC < msec):
+                _last_tic_msec = msec - 10 * USERCMD_MSEC
 
-        while _last_tic_msec+tic_msec <= msec:
+        while _last_tic_msec + tic_msec <= msec:
             self.single_async_tic()
             _last_tic_msec += tic_msec
 
@@ -311,13 +330,39 @@ class IdCommonLocal(IdCommon):
 
         """
         id: main thread code can prevent this from happening while modifying
-	    critical data structures
-	    """
+        critical data structures
+        """
         global _com_tic_number
         sys_enter_critical_section(0)
         not_implemented_log('async tic routines')
-        #id : we update com_ticNumber after all the background tasks  have completed their work for this tic
-        _com_tic_number+=1
+        # id : we update com_ticNumber after all the background tasks  have completed their work for this tic
+        _com_tic_number += 1
         not_implemented_log('async tic: stat')
         sys_leave_critical_section(0)
 
+    def init_game(self):
+        # id: initialize the file system
+        not_implemented_log('except render')
+        # id: initialize the renderSystem data structures, but don't start OpenGL yet
+        render = IdRenderSystemLocal()
+        render.init()
+
+    def startup_variable(self, match, once):
+        i = 0
+        while (i < self.com_num_console_lines):
+            if self.com_console_lines[i].argv(0) == 'set':
+                i += 1
+                continue
+            s = self.com_console_lines[i].argv(1)
+            not_implemented_log('!idStr::Icmp( s, match )')
+            if not match or False:
+                not_implemented_log('cvarSystem->SetCVarString( s, com_consoleLines[ i ].Argv( 2 ) );')
+                if once:
+                    # id: kill the line
+                    j = i + 1
+                    while j < self.com_num_console_lines:
+                        self.com_console_lines[j - 1] = self.com_console_lines[j]
+                        j += 1
+                    self.com_num_console_lines -= 1
+                    continue
+            i += 1
