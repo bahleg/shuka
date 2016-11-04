@@ -1,6 +1,11 @@
 from shuka_lib.mocks import not_implemented_log
 class IdCmdSystem:
-    def arg_completion_string(self, args, callback):
+    @staticmethod
+    def arg_completion_string( args, callback):
+        raise NotImplementedError()
+
+    @staticmethod
+    def arg_completion_integer(self, args, callback):
         raise NotImplementedError()
 
     def init(self):

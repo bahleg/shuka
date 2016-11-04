@@ -1,0 +1,1 @@
+BUILD_DATADIR='/usr/local/share/dhewm3/base'

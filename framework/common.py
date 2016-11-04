@@ -23,6 +23,7 @@ from id_sys.events import *
 
 from renderer.render_system import IdRenderSystemLocal
 
+from file_system import IdFileSystemLocal
 TOOL_FLAG = {
     'EDITOR_NONE': 0,
     'EDITOR_RADIANT': bit(1),
@@ -342,7 +343,9 @@ class IdCommonLocal(IdCommon):
 
     def init_game(self):
         # id: initialize the file system
-        not_implemented_log('except render')
+        fs =IdFileSystemLocal()
+        fs.init()
+        not_implemented_log('many things in init game')
         # id: initialize the renderSystem data structures, but don't start OpenGL yet
         render = IdRenderSystemLocal()
         render.init()

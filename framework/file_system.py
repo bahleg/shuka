@@ -91,24 +91,11 @@ for instance to base a mod of D3 + D3XP assets, fs_game mymod, fs_game_base d3xp
 
 from common import *
 from cvar_system import *
-_fs_restrict = IdCVar("fs_restrict", "", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'] | CVAR_FLAGS['CVAR_BOOL'], "" )
-
-dCVar	idFileSystemLocal::fs_restrict( );
-idCVar	idFileSystemLocal::fs_debug( "fs_debug", "0", CVAR_SYSTEM | CVAR_INTEGER, "", 0, 2, idCmdSystem::ArgCompletion_Integer<0,2> );
-idCVar	idFileSystemLocal::fs_copyfiles( "fs_copyfiles", "0", CVAR_SYSTEM | CVAR_INIT | CVAR_INTEGER, "", 0, 4, idCmdSystem::ArgCompletion_Integer<0,3> );
-idCVar	idFileSystemLocal::fs_basepath( "fs_basepath", "", CVAR_SYSTEM | CVAR_INIT, "" );
-idCVar	idFileSystemLocal::fs_configpath( "fs_configpath", "", CVAR_SYSTEM | CVAR_INIT, "" );
-idCVar	idFileSystemLocal::fs_savepath( "fs_savepath", "", CVAR_SYSTEM | CVAR_INIT, "" );
-idCVar	idFileSystemLocal::fs_cdpath( "fs_cdpath", "", CVAR_SYSTEM | CVAR_INIT, "" );
-idCVar	idFileSystemLocal::fs_devpath( "fs_devpath", "", CVAR_SYSTEM | CVAR_INIT, "" );
-idCVar	idFileSystemLocal::fs_game( "fs_game", "", CVAR_SYSTEM | CVAR_INIT | CVAR_SERVERINFO, "mod path" );
-idCVar  idFileSystemLocal::fs_game_base( "fs_game_base", "", CVAR_SYSTEM | CVAR_INIT | CVAR_SERVERINFO, "alternate mod path, searched after the main fs_game path, before the basedir" );
-#ifdef WIN32
-idCVar	idFileSystemLocal::fs_caseSensitiveOS( "fs_caseSensitiveOS", "0", CVAR_SYSTEM | CVAR_BOOL, "" );
-#else
-idCVar	idFileSystemLocal::fs_caseSensitiveOS( "fs_caseSensitiveOS", "1", CVAR_SYSTEM | CVAR_BOOL, "" );
-#endif
-idCVar	idFileSystemLocal::fs_searchAddons( "fs_searchAddons", "0", CVAR_SYSTEM | CVAR_BOOL, "search all addon pk4s ( disables addon functionality )" );
+from shuka_lib.utils import get_os
+_fs_restrict = IdCVar("fs_restrict", "", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'] | CVAR_FLAGS['CVAR_BOOL'],
+                      "")
+from functools import partial
+import sys
 
 
 class IdFileSystem:
@@ -126,6 +113,35 @@ class IdFileSystem:
 
 
 class IdFileSystemLocal(IdFileSystem):
+    def __init__(self):
+        IdFileSystem.__init__(self)
+        self.fs_restrict = IdCVar("fs_restrict", "",
+                                  CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'] | CVAR_FLAGS['CVAR_BOOL'], "")
+        self.fs_debug = IdCVar("fs_debug", "0", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INTEGER'], 0, 2,
+                               value_completion=partial(IdCmdSystem.arg_completion_integer, args=(0, 2)))
+        self.fs_copyfiles = IdCVar("fs_copyfiles", "0",
+                                   CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INTEGER'] | CVAR_FLAGS['CVAR_INIT'], 0,
+                                   4, value_completion=partial(IdCmdSystem.arg_completion_integer, args=(0, 3)))
+        self.fs_basepath = IdCVar("fs_basepath", "", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'], "")
+        self.fs_configpath = IdCVar("fs_configpath", "", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'], "")
+        self.fs_savepath = IdCVar("fs_savepath", "", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'], "")
+        self.fs_cdpath = IdCVar("fs_cdpath", "", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'], "")
+        self.dev_path = IdCVar("dev_path", "", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'], "")
+        self.fs_game = IdCVar("fs_game", "",
+                              CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'] | CVAR_FLAGS['CVAR_SERVERINFO'],
+                              "mod path")
+        self.fs_game_base = IdCVar("fs_game_base", "",
+                                   CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'] | CVAR_FLAGS['CVAR_SERVERINFO'],
+                                   "alternate mod path, searched after the main fs_game path, before the basedir")
+        if get_os()=='win':
+            self.fs_case_sensitive_OS = IdCVar("fs_caseSensitiveOS", "0",
+                                               CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_BOOL'], "")
+        else:
+            self.fs_case_sensitive_OS = IdCVar("fs_caseSensitiveOS", "1",
+                                               CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_BOOL'], "")
+        self.fs_search_addons = IdCVar("fs_searchAddons", "0", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_BOOL'],
+                                       "search all addon pk4s ( disables addon functionality )")
+
     def init(self):
         """
         id:
@@ -143,3 +159,21 @@ class IdFileSystemLocal(IdFileSystem):
         IdCommon.get_instance().startup_variable('fs_copyfiles', False)
         IdCommon.get_instance().startup_variable('fs_restrict', False)
         IdCommon.get_instance().startup_variable('fs_searchAddons', False)
+        path = ''
+        if self.fs_basepath.get_string()[0] == '\0' and
+	if (fs_basepath.GetString()[0] == '\0' && Sys_GetPath(PATH_BASE, path))
+		fs_basepath.SetString(path);
+
+	if (fs_savepath.GetString()[0] == '\0' && Sys_GetPath(PATH_SAVE, path))
+		fs_savepath.SetString(path);
+
+	if (fs_configpath.GetString()[0] == '\0' && Sys_GetPath(PATH_CONFIG, path))
+		fs_configpath.SetString(path);
+
+	if ( fs_devpath.GetString()[0] == '\0' ) {
+#ifdef WIN32
+		fs_devpath.SetString( fs_cdpath.GetString()[0] ? fs_cdpath.GetString() : fs_basepath.GetString() );
+#else
+		fs_devpath.SetString( fs_savepath.GetString() );
+#endif
+	}

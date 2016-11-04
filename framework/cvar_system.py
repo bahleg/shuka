@@ -1,5 +1,6 @@
 from id_sys.sys_platform import bit
 from shuka_lib.mocks import not_implemented_log
+
 CVAR_FLAGS = {
     'CVAR_ALL': -1,  # id:  all flags
     'CVAR_BOOL': bit(0),  # id:  variable is a boolean
@@ -25,7 +26,8 @@ CVAR_FLAGS = {
 
 
 class IdCVar:
-    def __init__(self, name, value, flags, description,  value_strings= None,value_min=1, value_max=-1, value_completion=None):
+    def __init__(self, name, value, flags, description, value_strings=None, value_min=1, value_max=-1,
+                 value_completion=None):
         self.name = name
         self.value = value
         self.flags = flags
@@ -40,12 +42,16 @@ class IdCVar:
         self.integer_var = self
         not_implemented_log('var init')
 
+    def get_string(self):
+        return str(self.value)
+
 
 class IdCVarSystem:
     _instance = None
 
     def init(self):
         raise NotImplementedError()
+
     @staticmethod
     def get_instance():
         return IdCVarSystem._instance
