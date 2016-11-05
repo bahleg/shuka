@@ -45,6 +45,8 @@ class IdCVar:
     def get_string(self):
         return str(self.value)
 
+    def set_string(self, value):
+        self.value=value
 
 class IdCVarSystem:
     _instance = None

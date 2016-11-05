@@ -1,1 +1,1 @@
-BUILD_DATADIR='/usr/local/share/dhewm3/base'
+BUILD_DATADIR='/usr/local/share/shuka/base'

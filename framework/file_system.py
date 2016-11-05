@@ -92,10 +92,11 @@ for instance to base a mod of D3 + D3XP assets, fs_game mymod, fs_game_base d3xp
 from common import *
 from cvar_system import *
 from shuka_lib.utils import get_os
+
 _fs_restrict = IdCVar("fs_restrict", "", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'] | CVAR_FLAGS['CVAR_BOOL'],
                       "")
+from id_sys.linux_port.main import sys_get_path
 from functools import partial
-import sys
 
 
 class IdFileSystem:
@@ -112,6 +113,34 @@ class IdFileSystem:
         raise NotImplementedError()
 
 
+class _Directory:
+    def __init__(self):
+        self.path = ''  # id: c:\doom
+        self.gamedir = ''  # id: base
+
+
+class _SearchPath:
+    def __init__(self):
+        self.pack = None  # id:  only one of pack / dir will be non NULL
+        self.dir = None
+
+
+class _Pack:
+    def __init__(self):
+        self.pak_filename = ''  # id: c:\doom\base\pak0.pk4
+        self.handle = None
+        self.checksum = 0
+        self.num_files = 0
+        self.length = 0
+        self.referenced = False
+        self.addon = False  # id: this is an addon pack - addon_search tells if it's 'active'
+        self.addon_info = None
+        self.pure_status = None
+        self.is_new = False  # id: for downloaded packs
+        self.hashTable = None
+        self.build_buffer = None
+
+
 class IdFileSystemLocal(IdFileSystem):
     def __init__(self):
         IdFileSystem.__init__(self)
@@ -126,14 +155,14 @@ class IdFileSystemLocal(IdFileSystem):
         self.fs_configpath = IdCVar("fs_configpath", "", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'], "")
         self.fs_savepath = IdCVar("fs_savepath", "", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'], "")
         self.fs_cdpath = IdCVar("fs_cdpath", "", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'], "")
-        self.dev_path = IdCVar("dev_path", "", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'], "")
+        self.fs_dev_path = IdCVar("fs_devpath", "", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'], "")
         self.fs_game = IdCVar("fs_game", "",
                               CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'] | CVAR_FLAGS['CVAR_SERVERINFO'],
                               "mod path")
         self.fs_game_base = IdCVar("fs_game_base", "",
                                    CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_INIT'] | CVAR_FLAGS['CVAR_SERVERINFO'],
                                    "alternate mod path, searched after the main fs_game path, before the basedir")
-        if get_os()=='win':
+        if get_os() == 'win':
             self.fs_case_sensitive_OS = IdCVar("fs_caseSensitiveOS", "0",
                                                CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_BOOL'], "")
         else:
@@ -141,6 +170,19 @@ class IdFileSystemLocal(IdFileSystem):
                                                CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_BOOL'], "")
         self.fs_search_addons = IdCVar("fs_searchAddons", "0", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS['CVAR_BOOL'],
                                        "search all addon pk4s ( disables addon functionality )")
+
+        self.search_paths = []
+        self.read_count = 0
+        self.load_count = 0
+        self.load_stack = 0
+        self.dir_cache_index = 0
+        self.dir_cache_count = 0
+        self.d3xp = 0
+        self.loaded_file_from_dir = False
+        self.background_thread_exit = False
+        self.addon_packs = []
+        # id: this will be a single name without separators
+        self.game_folder = ''
 
     def init(self):
         """
@@ -159,21 +201,224 @@ class IdFileSystemLocal(IdFileSystem):
         IdCommon.get_instance().startup_variable('fs_copyfiles', False)
         IdCommon.get_instance().startup_variable('fs_restrict', False)
         IdCommon.get_instance().startup_variable('fs_searchAddons', False)
-        path = ''
-        if self.fs_basepath.get_string()[0] == '\0' and
-	if (fs_basepath.GetString()[0] == '\0' && Sys_GetPath(PATH_BASE, path))
-		fs_basepath.SetString(path);
+        path = sys_get_path('PATH_BASE')
+        if self.fs_basepath.get_string() == '' and path:
+            self.fs_basepath.set_string(path)
 
-	if (fs_savepath.GetString()[0] == '\0' && Sys_GetPath(PATH_SAVE, path))
-		fs_savepath.SetString(path);
+        path = sys_get_path('PATH_SAVE')
+        if self.fs_savepath.get_string() == '' and path:
+            self.fs_savepath.set_string(path)
 
-	if (fs_configpath.GetString()[0] == '\0' && Sys_GetPath(PATH_CONFIG, path))
-		fs_configpath.SetString(path);
+        path = sys_get_path('PATH_CONFIG')
+        if self.fs_configpath.get_string() == '' and path:
+            self.fs_configpath.set_string(path)
 
-	if ( fs_devpath.GetString()[0] == '\0' ) {
-#ifdef WIN32
-		fs_devpath.SetString( fs_cdpath.GetString()[0] ? fs_cdpath.GetString() : fs_basepath.GetString() );
-#else
-		fs_devpath.SetString( fs_savepath.GetString() );
-#endif
+        if self.fs_dev_path.get_string() == '':
+            if get_os() == 'win':
+                if self.fs_cdpath.get_string() != '':
+                    self.fs_dev_path.set_string(self.fs_cdpath.get_string())
+                else:
+                    self.fs_dev_path.set_string(self.fs_basepath.get_string())
+            else:
+                self.fs_dev_path.set_string(self.fs_savepath.get_string())
+        self.startup()
+
+    def add_game_directory(self, path, dir):
+        """
+        id: Sets gameFolder, adds the directory to the head of the search paths, then loads any pk4 files.
+        """
+        # id: check if the search path already exists
+        for search in self.search_paths:
+            # id:  f this element is a pak file
+            if not search.dir:
+                continue
+            if search.dir.path == path and search.dir == dir:
+                return
+        self.game_folder = dir
+        # id: add the directory to the search path
+        search = _SearchPath()
+        search.dir = _Directory()
+        search.pack = None
+        search.dir.path = path
+        search.dir.gamedir = dir
+        self.search_paths.append(search)
+        # id: find all pak files in this directory
+        pakfile = os.path.join(path, dir)
+        pakfiles = [f for f in os.listdir(pakfile) if f.endswith('.pk4')]
+        # id: sort them so that later alphabetic matches override
+        # earlier ones. This makes pak1.pk4 override pak0.pk4
+        pakfiles.sort(reverse=True)
+        for i in xrange(len(pakfiles)):
+            pakfile = os.path.join(path, dir, pakfiles[i])
+            pak = self.load_zip_file(pakfile)
+            if not pak:
+                continue
+            # id: insert the pak after the directory it comes from
+            search = _SearchPath()
+            search.dir = None
+            search.pack = pak
+            self.search_paths.append(search)
+            logging.info('Loaded pk4 {0} with checksum {1}'.format(pakfile, pak.checksum))
+
+    def load_zip_file(self, zipfile):
+        raise NotImplementedError()
+
+    def startup(self):
+        logging.info('----- Initializing File System -----')
+        not_implemented_log('checknums rouitines')
+        """
+
+
+
+	SetupGameDirectories( BASE_GAMEDIR );
+
+	// fs_game_base override
+	if ( fs_game_base.GetString()[0] &&
+		 idStr::Icmp( fs_game_base.GetString(), BASE_GAMEDIR ) ) {
+		SetupGameDirectories( fs_game_base.GetString() );
 	}
+
+	// fs_game override
+	if ( fs_game.GetString()[0] &&
+		 idStr::Icmp( fs_game.GetString(), BASE_GAMEDIR ) &&
+		 idStr::Icmp( fs_game.GetString(), fs_game_base.GetString() ) ) {
+		SetupGameDirectories( fs_game.GetString() );
+	}
+
+	// currently all addons are in the search list - deal with filtering out and dependencies now
+	// scan through and deal with dependencies
+	search = &searchPaths;
+	while ( *search ) {
+		if ( !( *search )->pack || !( *search )->pack->addon ) {
+			search = &( ( *search )->next );
+			continue;
+		}
+		pak = ( *search )->pack;
+		if ( fs_searchAddons.GetBool() ) {
+			// when we have fs_searchAddons on we should never have addonChecksums
+			assert( !addonChecksums.Num() );
+			pak->addon_search = true;
+			search = &( ( *search )->next );
+			continue;
+		}
+		addon_index = addonChecksums.FindIndex( pak->checksum );
+		if ( addon_index >= 0 ) {
+			assert( !pak->addon_search );	// any pak getting flagged as addon_search should also have been removed from addonChecksums already
+			pak->addon_search = true;
+			addonChecksums.RemoveIndex( addon_index );
+			FollowAddonDependencies( pak );
+		}
+		search = &( ( *search )->next );
+	}
+
+	// now scan to filter out addons not marked addon_search
+	search = &searchPaths;
+	while ( *search ) {
+		if ( !( *search )->pack || !( *search )->pack->addon ) {
+			search = &( ( *search )->next );
+			continue;
+		}
+		assert( !( *search )->dir );
+		pak = ( *search )->pack;
+		if ( pak->addon_search ) {
+			common->Printf( "Addon pk4 %s with checksum 0x%x is on the search list\n",
+							pak->pakFilename.c_str(), pak->checksum );
+			search = &( ( *search )->next );
+		} else {
+			// remove from search list, put in addons list
+			searchpath_t *paksearch = *search;
+			*search = ( *search )->next;
+			paksearch->next = addonPaks;
+			addonPaks = paksearch;
+			common->Printf( "Addon pk4 %s with checksum 0x%x is on addon list\n",
+							pak->pakFilename.c_str(), pak->checksum );
+		}
+	}
+
+	// all addon paks found and accounted for
+	assert( !addonChecksums.Num() );
+	addonChecksums.Clear();	// just in case
+
+	if ( restartChecksums.Num() ) {
+		search = &searchPaths;
+		while ( *search ) {
+			if ( !( *search )->pack ) {
+				search = &( ( *search )->next );
+				continue;
+			}
+			if ( ( i = restartChecksums.FindIndex( ( *search )->pack->checksum ) ) != -1 ) {
+				if ( i == 0 ) {
+					// this pak is the next one in the pure search order
+					serverPaks.Append( ( *search )->pack );
+					restartChecksums.RemoveIndex( 0 );
+					if ( !restartChecksums.Num() ) {
+						break; // early out, we're done
+					}
+					search = &( ( *search )->next );
+					continue;
+				} else {
+					// this pak will be on the pure list, but order is not right yet
+					searchpath_t	*aux;
+					aux = ( *search )->next;
+					if ( !aux ) {
+						// last of the list can't be swapped back
+						if ( fs_debug.GetBool() ) {
+							common->Printf( "found pure checksum %x at index %d, but the end of search path is reached\n", ( *search )->pack->checksum, i );
+							idStr checks;
+							checks.Clear();
+							for ( i = 0; i < serverPaks.Num(); i++ ) {
+								checks += va( "%p ", serverPaks[ i ] );
+							}
+							common->Printf( "%d pure paks - %s \n", serverPaks.Num(), checks.c_str() );
+							checks.Clear();
+							for ( i = 0; i < restartChecksums.Num(); i++ ) {
+								checks += va( "%x ", restartChecksums[ i ] );
+							}
+							common->Printf( "%d paks left - %s\n", restartChecksums.Num(), checks.c_str() );
+						}
+						common->FatalError( "Failed to restart with pure mode restrictions for server connect" );
+					}
+					// put this search path at the end of the list
+					searchpath_t *search_end;
+					search_end = ( *search )->next;
+					while ( search_end->next ) {
+						search_end = search_end->next;
+					}
+					search_end->next = *search;
+					*search = ( *search )->next;
+					search_end->next->next = NULL;
+					continue;
+				}
+			}
+			// this pak is not on the pure list
+			search = &( ( *search )->next );
+		}
+		// the list must be empty
+		if ( restartChecksums.Num() ) {
+			if ( fs_debug.GetBool() ) {
+				idStr checks;
+				checks.Clear();
+				for ( i = 0; i < serverPaks.Num(); i++ ) {
+					checks += va( "%p ", serverPaks[ i ] );
+				}
+				common->Printf( "%d pure paks - %s \n", serverPaks.Num(), checks.c_str() );
+				checks.Clear();
+				for ( i = 0; i < restartChecksums.Num(); i++ ) {
+					checks += va( "%x ", restartChecksums[ i ] );
+				}
+				common->Printf( "%d paks left - %s\n", restartChecksums.Num(), checks.c_str() );
+			}
+			common->FatalError( "Failed to restart with pure mode restrictions for server connect" );
+		}
+	}
+
+	// add our commands
+	cmdSystem->AddCommand( "dir", Dir_f, CMD_FL_SYSTEM, "lists a folder", idCmdSystem::ArgCompletion_FileName );
+	cmdSystem->AddCommand( "dirtree", DirTree_f, CMD_FL_SYSTEM, "lists a folder with subfolders" );
+	cmdSystem->AddCommand( "path", Path_f, CMD_FL_SYSTEM, "lists search paths" );
+	cmdSystem->AddCommand( "touchFile", TouchFile_f, CMD_FL_SYSTEM, "touches a file" );
+	cmdSystem->AddCommand( "touchFileList", TouchFileList_f, CMD_FL_SYSTEM, "touches a list of files" );
+
+	// print the current search paths
+	Path_f( idCmdArgs() );
+	        """
