@@ -11,6 +11,9 @@ class IdCmdSystem:
     def init(self):
         raise NotImplementedError()
 
+    def add_command(self, *args):
+        not_implemented_log('add_command')
+
     _instance = None
 
     @staticmethod

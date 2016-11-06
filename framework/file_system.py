@@ -88,6 +88,8 @@ fs_game_base can be used to set an additional search path
 in search order, fs_game, fs_game_base, BASEGAME
 for instance to base a mod of D3 + D3XP assets, fs_game mymod, fs_game_base d3xp
 """
+import zipfile
+import hashlib
 
 from common import *
 from cvar_system import *
@@ -97,6 +99,11 @@ _fs_restrict = IdCVar("fs_restrict", "", CVAR_FLAGS['CVAR_SYSTEM'] | CVAR_FLAGS[
                       "")
 from id_sys.linux_port.main import sys_get_path
 from functools import partial
+from licensee import *
+from cmd_system import *
+# id: how many OSes to handle game paks for ( we don't have to know them precisely )
+BINARY_CONFIG = "binary.conf"
+ADDON_CONFIG = "addon.conf"
 
 
 class IdFileSystem:
@@ -135,10 +142,16 @@ class _Pack:
         self.referenced = False
         self.addon = False  # id: this is an addon pack - addon_search tells if it's 'active'
         self.addon_info = None
+        self.addon_search = False
         self.pure_status = None
         self.is_new = False  # id: for downloaded packs
         self.hashTable = None
         self.build_buffer = None
+
+
+class _FileInPack:
+    def __init__(self):
+        self.name = ''
 
 
 class IdFileSystemLocal(IdFileSystem):
@@ -222,6 +235,26 @@ class IdFileSystemLocal(IdFileSystem):
             else:
                 self.fs_dev_path.set_string(self.fs_savepath.get_string())
         self.startup()
+        not_implemented_log('startup downloading thread')
+        """
+        id:
+        if we can't find default.cfg, assume that the paths are
+        busted and error out now, rather than getting an unreadable
+        graphics screen when the font fails to load
+        Dedicated servers can run with no outside files at all
+        """
+        if self.read_file("default.cfg", None, None) <= 0:
+            logging.fatal('could not load default.cfg')
+            exit(1)
+
+    def read_file(self, relative_path, buffer, timestamp):
+        """
+        id:
+        Filename are relative to the search path
+        a null buffer will just return the file length and time without loading
+        timestamp can be NULL if not required
+        """
+        raise NotImplementedError()
 
     def add_game_directory(self, path, dir):
         """
@@ -260,165 +293,78 @@ class IdFileSystemLocal(IdFileSystem):
             self.search_paths.append(search)
             logging.info('Loaded pk4 {0} with checksum {1}'.format(pakfile, pak.checksum))
 
-    def load_zip_file(self, zipfile):
-        raise NotImplementedError()
+    def hash_filename(self, fname):
+        return fname.lower().replace('\\', '/').rsplit('.', 1)[0].__hash__()
+
+    def load_zip_file(self, zip_file):
+        pack = _Pack()
+        try:
+            f = zipfile.ZipFile(zip_file, 'rb')
+        except:
+            return None
+
+        pack.pak_filename = zip_file
+        pack.handle = f
+
+        pack.num_files = len(f.filelist)
+        pack.build_buffer = []
+        pack.referenced = False
+        pack.addon = False
+        pack.addon_info = None
+        pack.pure_status = 'PURE_UNKNOWN'
+        pack.is_new = False
+        pack.length = os.path.getsize(zip_file)
+        for zip_entry in f.filelist:
+            pack.build_buffer.append(_FileInPack())
+            pack.build_buffer[-1].name = zip_entry.filename.lower()
+            pack.build_buffer[-1].name.replace('\\', '/')
+            pack.hashTable[self.hash_filename(zip_entry.filename)] = len(pack.build_buffer) - 1
+
+
+        # id: ignore all binary paks
+        conf_hash = self.hash_filename(BINARY_CONFIG)
+        if conf_hash in pack.hashTable:
+            return None
+
+        # id: check if this is an addon pak
+        pack.addon = False
+        conf_hash = self.hash_filename(ADDON_CONFIG)
+        if conf_hash in pack.hashTable:
+            pack.addon = True
+            not_implemented_log('addon parsing')
+        pack.checksum = hashlib.md5(open(zip_file, 'rb').read()).hexdigest()
+        return pack
+
+    def setup_game_directories(self, game_name):
+        """
+        id: Takes care of the correct search order.
+        """
+        # id: setup cdpath
+        if self.fs_cdpath.get_string() != '':
+            self.add_game_directory(self.fs_cdpath.get_string(), game_name)
+        # id: setup basepath
+        if self.fs_basepath.get_string() != '':
+            self.add_game_directory(self.fs_basepath.get_string(), game_name)
+        # id: setup devpath:
+        if self.fs_dev_path.get_string() != '':
+            self.add_game_directory(self.fs_dev_path.get_string(), game_name)
+        # id: setup savepath:
+        if self.fs_savepath.get_string() != '':
+            self.add_game_directory(self.fs_savepath.get_string(), game_name)
+        # id: setup configpath:
+        if self.fs_configpath.get_string() != '':
+            self.add_game_directory(self.fs_configpath.get_string(), game_name)
 
     def startup(self):
         logging.info('----- Initializing File System -----')
         not_implemented_log('checknums rouitines')
-        """
-
-
-
-	SetupGameDirectories( BASE_GAMEDIR );
-
-	// fs_game_base override
-	if ( fs_game_base.GetString()[0] &&
-		 idStr::Icmp( fs_game_base.GetString(), BASE_GAMEDIR ) ) {
-		SetupGameDirectories( fs_game_base.GetString() );
-	}
-
-	// fs_game override
-	if ( fs_game.GetString()[0] &&
-		 idStr::Icmp( fs_game.GetString(), BASE_GAMEDIR ) &&
-		 idStr::Icmp( fs_game.GetString(), fs_game_base.GetString() ) ) {
-		SetupGameDirectories( fs_game.GetString() );
-	}
-
-	// currently all addons are in the search list - deal with filtering out and dependencies now
-	// scan through and deal with dependencies
-	search = &searchPaths;
-	while ( *search ) {
-		if ( !( *search )->pack || !( *search )->pack->addon ) {
-			search = &( ( *search )->next );
-			continue;
-		}
-		pak = ( *search )->pack;
-		if ( fs_searchAddons.GetBool() ) {
-			// when we have fs_searchAddons on we should never have addonChecksums
-			assert( !addonChecksums.Num() );
-			pak->addon_search = true;
-			search = &( ( *search )->next );
-			continue;
-		}
-		addon_index = addonChecksums.FindIndex( pak->checksum );
-		if ( addon_index >= 0 ) {
-			assert( !pak->addon_search );	// any pak getting flagged as addon_search should also have been removed from addonChecksums already
-			pak->addon_search = true;
-			addonChecksums.RemoveIndex( addon_index );
-			FollowAddonDependencies( pak );
-		}
-		search = &( ( *search )->next );
-	}
-
-	// now scan to filter out addons not marked addon_search
-	search = &searchPaths;
-	while ( *search ) {
-		if ( !( *search )->pack || !( *search )->pack->addon ) {
-			search = &( ( *search )->next );
-			continue;
-		}
-		assert( !( *search )->dir );
-		pak = ( *search )->pack;
-		if ( pak->addon_search ) {
-			common->Printf( "Addon pk4 %s with checksum 0x%x is on the search list\n",
-							pak->pakFilename.c_str(), pak->checksum );
-			search = &( ( *search )->next );
-		} else {
-			// remove from search list, put in addons list
-			searchpath_t *paksearch = *search;
-			*search = ( *search )->next;
-			paksearch->next = addonPaks;
-			addonPaks = paksearch;
-			common->Printf( "Addon pk4 %s with checksum 0x%x is on addon list\n",
-							pak->pakFilename.c_str(), pak->checksum );
-		}
-	}
-
-	// all addon paks found and accounted for
-	assert( !addonChecksums.Num() );
-	addonChecksums.Clear();	// just in case
-
-	if ( restartChecksums.Num() ) {
-		search = &searchPaths;
-		while ( *search ) {
-			if ( !( *search )->pack ) {
-				search = &( ( *search )->next );
-				continue;
-			}
-			if ( ( i = restartChecksums.FindIndex( ( *search )->pack->checksum ) ) != -1 ) {
-				if ( i == 0 ) {
-					// this pak is the next one in the pure search order
-					serverPaks.Append( ( *search )->pack );
-					restartChecksums.RemoveIndex( 0 );
-					if ( !restartChecksums.Num() ) {
-						break; // early out, we're done
-					}
-					search = &( ( *search )->next );
-					continue;
-				} else {
-					// this pak will be on the pure list, but order is not right yet
-					searchpath_t	*aux;
-					aux = ( *search )->next;
-					if ( !aux ) {
-						// last of the list can't be swapped back
-						if ( fs_debug.GetBool() ) {
-							common->Printf( "found pure checksum %x at index %d, but the end of search path is reached\n", ( *search )->pack->checksum, i );
-							idStr checks;
-							checks.Clear();
-							for ( i = 0; i < serverPaks.Num(); i++ ) {
-								checks += va( "%p ", serverPaks[ i ] );
-							}
-							common->Printf( "%d pure paks - %s \n", serverPaks.Num(), checks.c_str() );
-							checks.Clear();
-							for ( i = 0; i < restartChecksums.Num(); i++ ) {
-								checks += va( "%x ", restartChecksums[ i ] );
-							}
-							common->Printf( "%d paks left - %s\n", restartChecksums.Num(), checks.c_str() );
-						}
-						common->FatalError( "Failed to restart with pure mode restrictions for server connect" );
-					}
-					// put this search path at the end of the list
-					searchpath_t *search_end;
-					search_end = ( *search )->next;
-					while ( search_end->next ) {
-						search_end = search_end->next;
-					}
-					search_end->next = *search;
-					*search = ( *search )->next;
-					search_end->next->next = NULL;
-					continue;
-				}
-			}
-			// this pak is not on the pure list
-			search = &( ( *search )->next );
-		}
-		// the list must be empty
-		if ( restartChecksums.Num() ) {
-			if ( fs_debug.GetBool() ) {
-				idStr checks;
-				checks.Clear();
-				for ( i = 0; i < serverPaks.Num(); i++ ) {
-					checks += va( "%p ", serverPaks[ i ] );
-				}
-				common->Printf( "%d pure paks - %s \n", serverPaks.Num(), checks.c_str() );
-				checks.Clear();
-				for ( i = 0; i < restartChecksums.Num(); i++ ) {
-					checks += va( "%x ", restartChecksums[ i ] );
-				}
-				common->Printf( "%d paks left - %s\n", restartChecksums.Num(), checks.c_str() );
-			}
-			common->FatalError( "Failed to restart with pure mode restrictions for server connect" );
-		}
-	}
-
-	// add our commands
-	cmdSystem->AddCommand( "dir", Dir_f, CMD_FL_SYSTEM, "lists a folder", idCmdSystem::ArgCompletion_FileName );
-	cmdSystem->AddCommand( "dirtree", DirTree_f, CMD_FL_SYSTEM, "lists a folder with subfolders" );
-	cmdSystem->AddCommand( "path", Path_f, CMD_FL_SYSTEM, "lists search paths" );
-	cmdSystem->AddCommand( "touchFile", TouchFile_f, CMD_FL_SYSTEM, "touches a file" );
-	cmdSystem->AddCommand( "touchFileList", TouchFileList_f, CMD_FL_SYSTEM, "touches a list of files" );
-
-	// print the current search paths
-	Path_f( idCmdArgs() );
-	        """
+        self.setup_game_directories(BASE_GAMEDIR)
+        # id: fs_game_base override
+        if self.fs_game_base.get_string() != '' and self.fs_game_base.get_string() != BASE_GAMEDIR:
+            self.setup_game_directories(self.fs_game_base)
+        # id: fs_game override
+        if self.fs_game.get_string() != '' and self.fs_game.get_string() != BASE_GAMEDIR:
+            self.setup_game_directories(self.fs_game)
+        not_implemented_log('addon loading')
+        # id: add our commands
+        not_implemented_log('add commands for fs system loading')
